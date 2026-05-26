@@ -1,0 +1,17 @@
+[Unit]
+Description=Parking Occupancy Tracker
+After=network-online.target light-controller.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/parking
+Environment=PYTHONPATH=/opt/parking/src
+ExecStart=/opt/parking/.venv/bin/python -m parking /opt/parking/config.toml
+Restart=on-failure
+RestartSec=2s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

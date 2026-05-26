@@ -1,0 +1,45 @@
+[parking]
+total_spaces = 100
+
+[thresholds]
+# 現在台数の絶対値で判定する。
+# current >= full_at    -> FULL
+# current >= crowded_at -> CROWDED
+# それ以外               -> EMPTY
+# 例: total=100 なら crowded_at=80, full_at=100 で「8割で混、満車で満」
+crowded_at = 80
+full_at    = 100
+
+[receiver]
+# "http" | "gpio" | "dummy"
+type = "http"
+
+[receiver.http]
+host = "127.0.0.1"
+port = 8080
+# alert の SW 番号 (1..4)。LinkBase の物理ポートとの対応は docs/DESIGN_HTTP_RECEIVER.md §3
+entry_switch = 1
+exit_switch  = 2
+# alert 文字で ACTIVE を意味する値。LinkBase 反転仕様に合わせて "0"
+active_value = "0"
+# エッジ検出後この秒数以内の再エッジを無視する保険
+min_event_interval = 0.5
+
+[receiver.gpio]
+entry_pin    = 17
+exit_pin     = 27
+pull_up      = true
+bounce_time  = 0.05
+min_interval = 0.2
+
+[receiver.dummy]
+# stdin から i / o を読んでイベント発火する
+
+[storage]
+# 現在台数とステータスを保存する JSON ファイル。中身は最新状態の1組のみ。
+# 履歴は logging.file に追記されるのでここでは持たない。
+state_file = "parking_state.json"
+
+[logging]
+level = "INFO"
+file  = "parking.log"
