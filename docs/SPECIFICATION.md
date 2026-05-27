@@ -15,7 +15,7 @@
 
 - 入力: 同一 Pi 上の LinkBase（満空灯制御装置）からの HTTP リクエスト。
 - 出力（フェーズ1）: ローカルの状態ファイル＋ログ。サイネージ出力はフェーズ2（未実装）。
-- 言語: Python 3.11+。外部依存は FastAPI / uvicorn / gpiozero（GPIO 使用時のみ）。
+- 言語: Python 3.9+（3.11未満は `tomllib` が無いため `tomli` バックポートを使用。requirements.txt で自動導入）。外部依存は FastAPI / uvicorn / gpiozero（GPIO 使用時のみ）。
 
 ### データフロー
 

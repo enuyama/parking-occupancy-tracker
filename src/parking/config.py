@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import tomllib
+try:
+    import tomllib  # Python 3.11+ 標準
+except ModuleNotFoundError:  # Python 3.10 以下では tomli バックポートを使う
+    import tomli as tomllib  # type: ignore[no-redef]
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
