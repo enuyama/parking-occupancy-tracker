@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -66,8 +66,8 @@ class HttpReceiver:
     def _setup_routes(self) -> None:
         @self.app.get("/api/control")
         def control(
-            alert: str | None = Query(None),
-            id: str | None = Query(None),
+            alert: Optional[str] = Query(None),
+            id: Optional[str] = Query(None),
         ):
             logger.debug("受信: alert=%r id=%r", alert, id)
             err = self._validate_alert(alert)
