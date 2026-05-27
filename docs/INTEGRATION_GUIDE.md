@@ -52,25 +52,25 @@
 
 ## 2. ステップ1: 配線（カメラ → LinkBase IOボード入力端子）
 
-カメラのアラーム出力(OC)を、**LinkBase IOボードの接点入力端子**（= MCP23017 の入力ピン8〜11）に接続する。
-**Pi本体の40ピンGPIOではない**ので注意。Pi は MCP23017 と I2C でつながっており、接点を読むのは MCP23017。
+カメラのアラーム出力(OC)を、**LinkBase 基板の接点入力端子 IN（CN4）** に接続する。
+**Pi本体の40ピンGPIOではない**（接点を読むのは基板上のIC、Pi はI2C接続）。
 
-LinkBase ソース（`main.py` の `_convert_input`）で確定したピン↔alert桁の対応:
+LinkBase公式仕様 §6 で **alert の桁番号 = 接点入力ポート番号（IN1〜IN4）** と確定:
 
-| 用途 | カメラ線 | alert桁 | MCP23017 入力ピン |
+| 用途 | カメラ線 | alert桁 | LinkBase端子 |
 |---|---|---|---|
-| 入庫 | IO1（オレンジ） | 1桁目(SW1) | pin11（GPB3） |
-| 出庫 | IO2（茶） | 2桁目(SW2) | pin10（GPB2） |
-| （未使用） | — | 3桁目(SW3) | pin9（GPB1） |
-| （未使用） | — | 4桁目(SW4) | pin8（GPB0） |
-| GND | 黒 | — | IOボードのGND端子 |
+| 入庫 | IO1（オレンジ） | 1桁目 | IN1（CN4） |
+| 出庫 | IO2（茶） | 2桁目 | IN2（CN4） |
+| （未使用） | — | 3桁目 | IN3 |
+| （未使用） | — | 4桁目 | IN4 |
+| GND | 黒 | — | CN4 の COM（基板GNDに接続済み） |
 
-- 間に**フォトカプラ**を入れる（屋外・絶縁・サージ対策。REQUIREMENTS §6.1）。
-- カメラとIOボードの**GNDを共通化**。
+- 接点は **IN と COM の間**に入れる（仕様書 §3.2: COMは基板GNDに接続済み）。
+- 間に**フォトカプラ**を入れる（屋外・絶縁・サージ対策。REQUIREMENTS §6.1）。カメラとIOボードの**GNDを共通化**。
 
-> ⚠️ **MCP23017のピン番号と、IOボード上の物理端子ラベル（In1〜In4等）の対応は実機で確認が必要。**
-> 極性（接点クローズが alert `0` か `1` か）も、`main.py` で反転(`1-i`)があることは確定しているが、
-> カメラOC→入力の配線・プルアップ次第。**ステップ4で実測して確定**する。
+> ⚠️ **極性（入力ありが alert `1` か `0` か）は実機で確認。**
+> 公式仕様 §6 では **`1`＝入力あり / `0`＝入力なし** なので、カメラ発火→入力あり→`1` が既定（`active_value="1"`）。
+> ただしフォトカプラの組み方で反転しうるため、**ステップ4で実測して確定**する。
 
 ---
 
@@ -116,10 +116,17 @@ LinkBase の `/opt/light/config.json` を設定する（参考: `tbbox-playlist-
 > ただし `main.py` が `SIM_ID = config['SIM_ID']` で参照しており、**キーごと削除すると KeyError で LinkBase が起動しない**。
 > → **キーは必ず残す**。値は任意（`"unused"` 等のダミーで可）。
 
-> **Mode に注意:** 既存の LinkBase は表示灯用途で `Mode="2"`（上位/下位2桁を分け、変化してない側を`9`でマスク）になっていることがある。
-> 駐車場用途では**全桁をそのまま送る `Mode="4"` に変更**する。Mode 2/3 のままだと alert に意図しない `9` が混ざる。
+> **Mode に注意:** 公式の出荷デフォルトは `"4"`（全ポート通知）。ただし表示灯用途で `Mode="2"`/`"3"`（変化してない側を`9`でマスク）に変更されている個体があるので確認する。
+> 駐車場用途では **`Mode="4"`** にする。`MONITOR_INTERVAL` は複数接点同時変化時に必要なら調整（公式 §8）。
 
-設定後 LinkBase を再起動（例: `systemctl restart light-controller` ※サービス名は `etc/systemd/system/light-controller.service`。実機で確認）。
+### LinkBase への接続（config.json 編集方法）
+
+config.json は LinkBase 機器内（`/opt/light/config.json`）にあるので、SSH で入って編集する（公式 §7・§9）:
+
+- 接続: SORACOM Napter のオンデマンドリモートアクセスで**デバイス側ポート22**を開け、SSH。
+- ログイン: ユーザー `mtx` / パスワード `MechaTracks`（公式 §9.1）。
+- 編集後の反映: `sudo systemctl restart light-controller.service`（公式 §9.2）。
+- 一時停止: `sudo systemctl stop light-controller.service`。
 
 ---
 
@@ -130,8 +137,8 @@ LinkBase の `/opt/light/config.json` を設定する（参考: `tbbox-playlist-
 1. 本アプリをデバッグログで起動（ステップ6参照、`logging.level = "DEBUG"` にしておくと `受信: alert=...` が見える）。
 2. 入庫側の接点（カメラIO1相当）を手動でON/OFF、またはカメラの前で実際に入庫方向に通過させる。
 3. ログに出る `alert` を確認:
-   - どの桁が変化するか → entry_switch / exit_switch の桁番号
-   - ONのとき `0` か `1` か → `active_value`
+   - どの桁が変化するか → entry_switch / exit_switch の桁番号（=IN番号）
+   - **入力あり（カメラ発火）のとき**その桁が `0` か `1` か → `active_value`（公式仕様では `1`=入力あり）
 4. 出庫側でも同様に確認。
 
 この結果でステップ6のアプリ config を確定させる。
@@ -149,9 +156,9 @@ type = "http"
 [receiver.http]
 host = "127.0.0.1"
 port = 8080
-entry_switch = 1        # ステップ4で確認した入庫の桁番号(1..4)
+entry_switch = 1        # 入庫の桁番号(=IN番号, 1..4)。ステップ4で確認
 exit_switch  = 2        # 出庫の桁番号
-active_value = "0"      # ON のとき alert が "0" なら "0"（LinkBase反転仕様の既定）
+active_value = "1"      # 入力あり(カメラ発火)のとき alert が "1" なら "1"（公式仕様の既定）。反転構成なら "0"
 min_event_interval = 0.5  # カメラのパルス幅に合わせて調整
 ```
 
@@ -198,7 +205,7 @@ PYTHONPATH=src python -m parking config.toml
 ```
 ... 設定を読み込みました (config.toml): total_spaces=100, crowded_at=80, full_at=100, receiver=http(host=127.0.0.1:8080, entry=SW1, exit=SW2, active='0', ...)
 ... 状態ファイル parking_state.json が無いため、新規（0台）で開始します。
-... HttpReceiver 起動: http://127.0.0.1:8080/api/control (entry=SW1, exit=SW2, active='0', min_interval=0.500s)
+... HttpReceiver 起動: http://127.0.0.1:8080/api/control (entry=SW1, exit=SW2, active='1', min_interval=0.500s)
 ... 起動完了: total=100 current=0 status=EMPTY。イベント待機中。
 ```
 
@@ -290,14 +297,15 @@ sudo systemctl disable parking.service   # 自動起動を無効化
 実機・LinkBaseが揃う前に、アプリ単体の動作を curl で確認できる（LinkBaseの代わりに手でHTTPを叩く）。
 
 ```bash
-# 入庫の立ち上がり（SW1: 1→0）
-curl "http://127.0.0.1:8080/api/control?alert=11999999&id=t"   # 非ACTIVE
-curl "http://127.0.0.1:8080/api/control?alert=01999999&id=t"   # ACTIVE → +1
+# （active_value="1" の場合。入力あり=1 で立ち上がりを作る）
+# 入庫の立ち上がり（SW1: 0→1）
+curl "http://127.0.0.1:8080/api/control?alert=00999999&id=t"   # 非ACTIVE(入力なし)
+curl "http://127.0.0.1:8080/api/control?alert=10999999&id=t"   # SW1=1(入力あり) → +1
 # 連続ACTIVEは増えない
-curl "http://127.0.0.1:8080/api/control?alert=01999999&id=t"   # 0のまま → 変化なし
-# 出庫（SW2: →0）
-curl "http://127.0.0.1:8080/api/control?alert=11999999&id=t"   # 戻す
-curl "http://127.0.0.1:8080/api/control?alert=10999999&id=t"   # SW2=0 → -1
+curl "http://127.0.0.1:8080/api/control?alert=10999999&id=t"   # 1のまま → 変化なし
+# 出庫（SW2: 0→1）
+curl "http://127.0.0.1:8080/api/control?alert=00999999&id=t"   # 戻す
+curl "http://127.0.0.1:8080/api/control?alert=01999999&id=t"   # SW2=1 → -1
 
 curl "http://127.0.0.1:8080/state"
 ```

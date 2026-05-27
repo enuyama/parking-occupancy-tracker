@@ -17,11 +17,13 @@ type = "http"
 [receiver.http]
 host = "127.0.0.1"
 port = 8080
-# alert の SW 番号 (1..4)。LinkBase の物理ポートとの対応は docs/DESIGN_HTTP_RECEIVER.md §3
-entry_switch = 1
-exit_switch  = 2
-# alert 文字で ACTIVE を意味する値。LinkBase 反転仕様に合わせて "0"
-active_value = "0"
+# alert の桁番号 = LinkBase の接点入力ポート番号 (IN1..IN4)。詳細は docs/DESIGN_HTTP_RECEIVER.md §3
+entry_switch = 1   # 入庫 = IN1（alert 1桁目）
+exit_switch  = 2   # 出庫 = IN2（alert 2桁目）
+# alert 文字で ACTIVE(入力あり) を意味する値。
+# LinkBase 公式仕様 §6: "1"=入力あり / "0"=入力なし → 既定は "1"。
+# フォトカプラ等で反転している場合は "0"。実機で1回観測して確定すること（§INTEGRATION_GUIDE ステップ4）。
+active_value = "1"
 # エッジ検出後この秒数以内の再エッジを無視する保険
 min_event_interval = 0.5
 

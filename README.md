@@ -76,23 +76,23 @@ host = "127.0.0.1"
 port = 8080
 entry_switch = 1
 exit_switch  = 2
-active_value = "0"
+active_value = "1"   # LinkBase公式仕様: "1"=入力あり。反転構成なら "0"
 ```
 
-別ターミナルから:
+別ターミナルから（`active_value="1"` の場合）:
 
 ```bash
-# SW1=0(ACTIVE)=入庫立ち上がり -> +1
-curl "http://127.0.0.1:8080/api/control?alert=01999999&id=test"
+# SW1=1(ACTIVE)=入庫立ち上がり -> +1
+curl "http://127.0.0.1:8080/api/control?alert=10999999&id=test"
 
-# SW1=1 に戻す (立ち下がりは無視)
-curl "http://127.0.0.1:8080/api/control?alert=11999999&id=test"
+# SW1=0 に戻す (立ち下がりは無視)
+curl "http://127.0.0.1:8080/api/control?alert=00999999&id=test"
 
 # 再度 ACTIVE -> +1
-curl "http://127.0.0.1:8080/api/control?alert=01999999&id=test"
-
-# SW2=0(ACTIVE)=出庫 -> -1
 curl "http://127.0.0.1:8080/api/control?alert=10999999&id=test"
+
+# SW2=1(ACTIVE)=出庫 -> -1
+curl "http://127.0.0.1:8080/api/control?alert=01999999&id=test"
 
 # 現在状態
 curl "http://127.0.0.1:8080/health"
