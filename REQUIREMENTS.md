@@ -20,6 +20,7 @@
 5. **言語は Python**（gpiozero でGPIO）。systemd でサービス化。永続化は単一の JSON ファイル（SQLite は過剰のため不採用 / 2026-05-18 変更）。履歴は `parking.log` に追記される。
 6. **カメラ確定: Hanwha Vision XNO-A6084R**（2MP AI IRバレットカメラ, PoE Class3, IP66/67, IK10）。アラーム I/O 2ポート（IO1=オレンジ, IO2=茶, GND=黒）、**出力はオープンコレクタ方式**。AIエンジンで「仮想線(交差・方向)」「車両カウント」が利用可能で、入庫/出庫を別ポートに割り当てる構成が成立する。詳細は §8.1（=確認結果反映済）。
 7. **Pi 側のGPIO接続はオープンコレクタを内蔵プルアップで受ける構成**。カメラ側出力（OC）が ON で GND 側に引き込まれ、Pi 側は LOW として検出する。電圧整合・サージ対策のためフォトカプラを挟む方針は §6.1 のまま維持。
+8. **LAN/MQTT 受信層を追加（2026-06-12, クライアント指定）**: カメラ → 同一 Pi 上の Mosquitto broker → 本アプリ という LAN 経由の受信経路を `receiver.type="mqtt"`（`receivers/mqtt.py`, paho-mqtt 2.x）として追加。接点/HTTP 経路と排他選択で併用しない。設計は [docs/DESIGN_MQTT_RECEIVER.md](docs/DESIGN_MQTT_RECEIVER.md)。
 
 ### 着手前にユーザー確認が要るか？
 - **不要。暫定値・上記の確定事項で実装を始めてよい。** 「実装して」と言われたら §10 の手順で進める。

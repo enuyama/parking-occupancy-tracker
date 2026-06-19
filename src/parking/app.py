@@ -76,6 +76,16 @@ def _build_receiver(
             on_entry=on_entry,
             on_exit=on_exit,
         )
+    if rtype == "mqtt":
+        if cfg.receiver.mqtt is None:
+            raise ValueError("receiver.type=mqtt だが [receiver.mqtt] が無い")
+        from .receivers.mqtt import MqttReceiver
+
+        return MqttReceiver(
+            config=cfg.receiver.mqtt,
+            on_entry=on_entry,
+            on_exit=on_exit,
+        )
     if rtype == "dummy":
         from .receivers.dummy import DummyReceiver
 

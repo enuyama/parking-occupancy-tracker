@@ -11,7 +11,7 @@ crowded_at = 80
 full_at    = 100
 
 [receiver]
-# "http" | "gpio" | "dummy"
+# "http" | "gpio" | "dummy" | "mqtt"
 type = "http"
 
 [receiver.http]
@@ -36,6 +36,28 @@ min_interval = 0.2
 
 [receiver.dummy]
 # stdin から i / o を読んでイベント発火する
+
+# カメラ MQTT (LAN) 受信。詳細は docs/DESIGN_MQTT_RECEIVER.md
+# type = "mqtt" のときのみ使用。broker(Mosquitto) は本アプリと同じ Pi に同居する前提。
+[receiver.mqtt]
+host = "localhost"          # アプリ→broker の接続先。Pi 同居なので localhost（カメラ→broker は Pi の LAN内IP で別物。§8）
+port = 1883
+username = ""               # 認証なし(allow_anonymous true)なら空文字。付ける場合は broker の passwd と一致させる
+password = ""               # 実値はコミットしない（このファイルは example。実値は config.toml=.gitignore 済みに置く）
+client_id = "parking-tracker"
+keepalive = 60
+# 購読トピック。+ = カメラMAC 1階層ワイルドカード, # = 以降全階層。カメラが増えても変更不要
+topic = "+/onvif-ej/OpenApp/WiseAI/LineCrossing/#"
+count_state = "true"        # Data.State がこの値のときだけカウント（大文字小文字は無視）
+min_event_interval = 0.0    # 連続カウント抑制（秒）。0=無効。チャタリング/再送対策の保険
+heartbeat_interval = 60.0   # 死活ログを出す間隔（秒）。0=無効
+
+# RuleName(=仮想線名) → 方向。各値は "entry" または "exit"。
+# 本番（対象物 car、出入口に2線）は実際の線名が決まったら設定する:
+# car_in  = "entry"
+# car_out = "exit"
+[receiver.mqtt.rules]
+bike = "entry"              # テスト用（自転車の単線）。本番では削除し car の2線に置き換える
 
 [storage]
 # 現在台数とステータスを保存する JSON ファイル。中身は最新状態の1組のみ。

@@ -26,6 +26,8 @@ cp config.example.toml config.toml
 # config.toml を環境に合わせて編集
 ```
 
+カメラ MQTT 経由の現地テスト手順は [docs/SETUP_FIELD_TEST_MQTT.md](docs/SETUP_FIELD_TEST_MQTT.md) を参照。
+
 ## テスト
 
 ```bash

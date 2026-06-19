@@ -1,7 +1,10 @@
 [Unit]
 Description=Parking Occupancy Tracker
-After=network-online.target light-controller.service
+After=network-online.target light-controller.service mosquitto.service
 Wants=network-online.target
+# receiver.type="mqtt" で broker(Mosquitto) を同一 Pi に同居運用する場合のみ有効化する。
+# HTTP/GPIO 運用の Pi に mosquitto が無いと Requires で起動不能になるため既定はコメントアウト。
+# Requires=mosquitto.service
 
 [Service]
 Type=simple
