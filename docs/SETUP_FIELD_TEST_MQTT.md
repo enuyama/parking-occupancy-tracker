@@ -3,11 +3,13 @@
 > **対象読者:** 現地でのカメラ結合テストを担当するエンジニア。
 > 設計の詳細は [docs/DESIGN_MQTT_RECEIVER.md](DESIGN_MQTT_RECEIVER.md) を参照。本書は「現地で上から順に実行する」ことに最適化している。
 
+> **MQTT 実機結合は検証済み（2026-06-24）。**
+
 ## 前提条件
 
 - **broker（Mosquitto）とカウントアプリは同一 Raspberry Pi 上に同居する。**
 - カメラ（Hanwha XNO-A6084R）は同一 LAN 内に設置済み。カメラの設定はクライアント／設置担当と協同で実施する。
-- アプリの配置先は `/opt/parking`（systemd ユニットの `WorkingDirectory` に合わせる）。
+- アプリの配置先は `/opt/parking/parking-occupancy-tracker`（systemd ユニットの `WorkingDirectory` に合わせる）。
 - Python 3.11+（Raspberry Pi OS Bookworm 標準）。3.10 以下でも `requirements.txt` の `tomli` で代替できる（起動時に依存エラーが出なければ問題ない）。
 
 ---
@@ -34,7 +36,7 @@ Raspberry Pi Imager でイメージを焼く際に SSH と Wi-Fi（または有�
 
 ```bash
 # Pi にログイン確認
-ssh pi@<PiのIPアドレス>
+ssh mtx@<PiのIPアドレス>
 ```
 
 ### 1.2 アプリ一式の転送
@@ -44,26 +46,31 @@ ssh pi@<PiのIPアドレス>
 ```bash
 # Pi 上で実行
 sudo mkdir -p /opt/parking
-sudo chown pi:pi /opt/parking
+sudo chown mtx:mtx /opt/parking
 cd /opt/parking
-git clone <リポジトリURL> .
+git clone <リポジトリURL>
+# → /opt/parking/parking-occupancy-tracker が作成される
 ```
 
 **方法B: scp または USB（オフライン環境の場合）**
 
 ```bash
+# Pi 上でディレクトリを事前作成
+sudo mkdir -p /opt/parking/parking-occupancy-tracker
+sudo chown -R mtx:mtx /opt/parking
+
 # 手元 PC からリポジトリ一式を転送
-scp -r /path/to/parking-occupancy-tracker/* pi@<PiのIP>:/opt/parking/
+scp -r /path/to/parking-occupancy-tracker/* mtx@<PiのIP>:/opt/parking/parking-occupancy-tracker/
 ```
 
 ---
 
 ## 2. アプリ配置
 
-Pi 上で `/opt/parking` に移動して作業する。
+Pi 上で `/opt/parking/parking-occupancy-tracker` に移動して作業する。
 
 ```bash
-cd /opt/parking
+cd /opt/parking/parking-occupancy-tracker
 
 # Python 仮想環境を作成
 python3 -m venv .venv
@@ -88,6 +95,17 @@ python3 -m venv .venv
 sudo apt install -y mosquitto mosquitto-clients
 sudo systemctl enable --now mosquitto
 ```
+
+> **テスト環境向けの補足:** Debian 系では `apt install` 時に Mosquitto が自動起動・自動有効化される。
+> 再起動のたびに自動起動させず手動で制御したい場合は、以下で一旦無効化してから `start`/`stop` で制御する:
+>
+> ```bash
+> sudo systemctl disable --now mosquitto   # 自動起動を無効化
+> sudo systemctl start mosquitto           # 手動で起動
+> sudo systemctl stop mosquitto            # 手動で停止
+> ```
+>
+> **本番環境では `enable --now` のままにすること。**
 
 ### 3.2 設定ファイルの作成
 
@@ -178,7 +196,7 @@ mosquitto_pub -h localhost -t 'test/hello' -m 'ok'
 hostname -I
 ```
 
-表示された IP アドレス（例: `192.168.1.50`）が**カメラ側 MQTT プロファイルの接続先**になる。
+表示された IP アドレス（例: `192.168.1.50`）が**カメラ側 MQTT クライアント接続先**になる。
 アプリ側 `config.toml` の `host = "localhost"` はアプリ→broker（同一 Pi 内）の接続であり、これとは別物（[設計書 §5](DESIGN_MQTT_RECEIVER.md#5-設定ファイル差分-configtoml) 参照）。
 
 **この IP をメモしておく（カメラ設定時に使用する）。**
@@ -188,7 +206,7 @@ hostname -I
 ## 5. config.toml 作成
 
 ```bash
-cd /opt/parking
+cd /opt/parking/parking-occupancy-tracker
 cp config.example.toml config.toml
 ```
 
@@ -213,8 +231,8 @@ password = "<password>"                # broker に登録したパスワード
 # 認証なし構成の場合は username / password を空文字 "" のまま
 
 [receiver.mqtt.rules]
-bike     = "entry"                     # ← テスト用のまま残す（§6 のスモークテスト用）
-test_out = "exit"                      # ← §6 で出庫(-1)も確認するため一時追加（§8.2 で削除）
+entry = "entry"                        # 入庫線（WiseAI 仮想線名 "entry"）
+exit  = "exit"                         # 出庫線（WiseAI 仮想線名 "exit"）
 ```
 
 > **注意:** `config.toml` は `.gitignore` 済み。認証情報が含まれるためリポジトリにコミットしないこと。
@@ -228,7 +246,7 @@ test_out = "exit"                      # ← §6 で出庫(-1)も確認するた
 ### 6.1 アプリ起動
 
 ```bash
-cd /opt/parking
+cd /opt/parking/parking-occupancy-tracker
 PYTHONPATH=src .venv/bin/python -m parking config.toml
 ```
 
@@ -245,23 +263,25 @@ INFO parking.receivers.mqtt: MQTT 接続成功: localhost:1883 を購読 topic='
 
 ### 6.2 擬似イベントの投入（別ターミナルで実行）
 
+トピック形式: `<任意MAC>/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/<RuleName>`
+
 ```bash
 # ① 入庫（State=true）→ current +1 になること
 mosquitto_pub -h localhost \
-  -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/bike' \
-  -m '{"UtcTime":"2026-05-29T00:00:00Z","Source":{"RuleName":"bike"},"Data":{"State":"true","ObjectId":"1","Action":"Right"}}' \
+  -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/entry' \
+  -m '{"UtcTime":"2026-05-29T00:00:00Z","Source":{"RuleName":"entry"},"Data":{"State":"true","ObjectId":"1","Action":"Right"}}' \
   -u parking -P <password>
 
 # ② イベント解除（State=false）→ カウント変化なし（無視されること）
 mosquitto_pub -h localhost \
-  -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/bike' \
-  -m '{"UtcTime":"2026-05-29T00:00:04Z","Source":{"RuleName":"bike"},"Data":{"State":"false","ObjectId":"","Action":""}}' \
+  -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/entry' \
+  -m '{"UtcTime":"2026-05-29T00:00:04Z","Source":{"RuleName":"entry"},"Data":{"State":"false","ObjectId":"","Action":""}}' \
   -u parking -P <password>
 
 # ③ 出庫線（State=true）→ current -1 になること
 mosquitto_pub -h localhost \
-  -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/test_out' \
-  -m '{"Source":{"RuleName":"test_out"},"Data":{"State":"true","ObjectId":"2"}}' \
+  -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/exit' \
+  -m '{"Source":{"RuleName":"exit"},"Data":{"State":"true","ObjectId":"2"}}' \
   -u parking -P <password>
 
 # ④ 未登録 RuleName → WARNING ログで無視されること（落ちないこと）
@@ -289,26 +309,33 @@ mosquitto_pub -h localhost \
 
 ## 7. カメラ側設定（クライアント／設置担当と協同で実施）
 
-詳細は [設計書 §8](DESIGN_MQTT_RECEIVER.md#8-カメラ側設定クライアント設置担当が実施) を参照。以下の3点を設定する。
+詳細は [設計書 §8](DESIGN_MQTT_RECEIVER.md#8-カメラ側設定クライアント設置担当が実施) を参照。設定は以下の**2点のみ**。
 
-### 7.1 仮想線を2本作成（WiseAI）
+### 7.1 MQTT クライアント接続設定
 
-- 入庫線・出庫線をそれぞれ作成し、**線名を決める**（例: `car_in` / `car_out`）。
-  - この線名が MQTT トピック末尾（`Source.RuleName`）になり、`config.toml` の `[receiver.mqtt.rules]` キーと一致させる。
-- **各線の対象物フィルタを「車両（car）」に限定する。** 人・自転車で発火する設定では誤カウントになる。
+カメラの MQTT 設定画面で以下を入力する:
 
-### 7.2 イベントルールを2本作成
-
-- 入庫線用・出庫線用それぞれにイベントルールを作成し、アクションで **MQTT を有効化**する。
-- > **注意:** 片方のルールしか MQTT を有効化しないと、その方向のイベントが届かず**カウントが片側欠落**する。必ず両方のルールで MQTT アクションを有効にすること。
-
-### 7.3 MQTT プロファイルの設定
-
-カメラの MQTT 設定画面で:
-
-- **接続先ホスト:** §4 で確認した Pi の LAN 内 IP アドレス
+- **接続先ホスト:** §4 で確認した Pi の LAN 内 IP アドレス（例: `192.168.1.50`）
 - **ポート:** `1883`
 - **ユーザー名 / パスワード:** §3.2 で Mosquitto に登録したもの（認証なしの場合は空欄）
+
+MQTT クライアント接続を保存・有効化すると、カメラは以降**すべての ONVIF / WiseAI イベント（LineCrossing 含む）を自動的に broker へ publish** する。
+
+### 7.2 WiseAI 仮想線 `entry` / `exit` の定義
+
+WiseAI 設定画面で以下の2本の仮想線を定義する:
+
+| 仮想線名 | 役割 | 対象物フィルタ |
+|----------|------|---------------|
+| `entry` | 入庫検出 | 車両（car）のみ |
+| `exit`  | 出庫検出 | 車両（car）のみ |
+
+- **線名は必ず `entry` / `exit` にすること。** この名前が MQTT トピック末尾（`Source.RuleName`）になり、`config.toml` の `[receiver.mqtt.rules]` キーと一致させる。
+- **対象物フィルタを「車両（car）」に限定すること。** 人・自転車で発火する設定では誤カウントになる。
+
+> **重要: イベントルール・カスタム MQTT 発行プロファイルは不要。**
+> LineCrossing イベントは MQTT クライアント接続が有効であれば自動配信される。
+> イベントルールや MQTT 発行プロファイルを別途作成すると**同一イベントが二重配信**される場合があるため、作成しないこと。
 
 ---
 
@@ -326,29 +353,29 @@ mosquitto_sub -h localhost -t '#' -v -u parking -P <password>
 車を仮想線付近で動かして、以下のようなメッセージが表示されることを確認する:
 
 ```
-E4:30:22:CA:38:7A/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/car_in {"UtcTime":"...","Source":{"RuleName":"car_in"},"Data":{"State":"true",...}}
+E4:30:22:CA:38:7A/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/entry {"UtcTime":"...","Source":{"RuleName":"entry"},"Data":{"State":"true",...}}
 ```
 
-> **ここで実際のトピックと RuleName（仮想線名）をメモする。** 次の手順で `config.toml` に設定する。
+### 8.2 config.toml の rules 確認
 
-### 8.2 config.toml の rules を実線名で更新
+線名は `entry` / `exit` で確定済み。§5 で設定した内容と実際の `RuleName` が一致しているかをここで照合する。
 
 ```bash
-nano /opt/parking/config.toml
+nano /opt/parking/parking-occupancy-tracker/config.toml
 ```
 
-`[receiver.mqtt.rules]` セクションを実際の線名に書き換える（テスト用の `bike` / `test_out` 行は削除）:
+`[receiver.mqtt.rules]` セクションが以下の通りであることを確認:
 
 ```toml
 [receiver.mqtt.rules]
-car_in  = "entry"   # ← 実際の入庫線名に変更
-car_out = "exit"    # ← 実際の出庫線名に変更
+entry = "entry"
+exit  = "exit"
 ```
 
 ### 8.3 アプリを起動して結合テスト
 
 ```bash
-cd /opt/parking
+cd /opt/parking/parking-occupancy-tracker
 PYTHONPATH=src .venv/bin/python -m parking config.toml
 ```
 
@@ -362,9 +389,9 @@ PYTHONPATH=src .venv/bin/python -m parking config.toml
 
 ### 8.4 設計書 §13 に基づくチェックリスト
 
-- [ ] **入口線の誤発火なし:** 入庫時に出口線（`car_out`）が発火していないこと（`mosquitto_sub -t '#'` で確認）。
-- [ ] **出口線の誤発火なし:** 出庫時に入口線（`car_in`）が発火していないこと。
-- [ ] **スロットル影響の確認:** 「実行時間: 60」「アラーム出力: 5s」の設定が MQTT 発行間隔のスロットルになっていないか。連続入庫で取りこぼしがあれば `min_event_interval` の調整またはカメラ側の設定変更を検討する（[設計書 §13](DESIGN_MQTT_RECEIVER.md#13-未解決事項実装をブロックしない--テスト時に確定) 参照）。
+- [ ] **入口線の誤発火なし:** 入庫時に出口線（`exit`）が発火していないこと（`mosquitto_sub -t '#'` で確認）。
+- [ ] **出口線の誤発火なし:** 出庫時に入口線（`entry`）が発火していないこと。
+- [ ] **スロットル影響の確認:** 連続入庫で取りこぼしがあれば `min_event_interval` の調整またはカメラ側の設定変更を検討する（[設計書 §13](DESIGN_MQTT_RECEIVER.md#13-未解決事項実装をブロックしない--テスト時に確定) 参照）。
 - [ ] **対象物フィルタの確認:** 人・自転車に反応しないこと（car 限定設定の効果確認）。
 - [ ] **QoS 変更の可否確認:** カメラ側の publish QoS を 1 に変更できるか確認（任意。[設計書 §3.1](DESIGN_MQTT_RECEIVER.md#31-配信品質qos--retainの制約-重要) 参照。既定 QoS 0 は既知の制約として受容可）。
 
@@ -375,7 +402,7 @@ PYTHONPATH=src .venv/bin/python -m parking config.toml
 ### 9.1 ユニットファイルのコピーとコメント解除
 
 ```bash
-sudo cp /opt/parking/systemd/parking.service /etc/systemd/system/parking.service
+sudo cp /opt/parking/parking-occupancy-tracker/systemd/parking.service /etc/systemd/system/parking.service
 sudo nano /etc/systemd/system/parking.service
 ```
 
@@ -384,7 +411,7 @@ sudo nano /etc/systemd/system/parking.service
 ```ini
 [Unit]
 Description=Parking Occupancy Tracker
-After=network-online.target light-controller.service mosquitto.service
+After=network-online.target mosquitto.service
 Wants=network-online.target
 # ↓ MQTT 運用のため以下のコメントを解除済み
 Requires=mosquitto.service
@@ -434,16 +461,16 @@ sudo journalctl -u parking -n 50 --no-pager | grep -E "復元|current"
 sudo journalctl -u parking -n 50 --no-pager
 
 # アプリログファイル
-tail -f /opt/parking/parking.log
+tail -f /opt/parking/parking-occupancy-tracker/parking.log
 ```
 
 | 症状 | ログの手がかり | 対処 |
 |------|---------------|------|
 | (a) MQTT 接続が認証で拒否される | `ERROR ... MQTT 接続が認証で拒否されました ... username/password を確認してください` | broker の `/etc/mosquitto/passwd` に登録したユーザー名・パスワードと `config.toml` の `[receiver.mqtt]` `username`/`password` を照合する。不一致なら `sudo mosquitto_passwd /etc/mosquitto/passwd parking` でパスワードを更新し、broker を restart |
 | (b) heartbeat で `connected=False` が続く | `MQTT heartbeat: connected=False` | Mosquitto の起動状態を確認: `sudo systemctl status mosquitto`。停止していれば `sudo systemctl start mosquitto`。起動中なら `config.toml` の `host`/`port` が `localhost`/`1883` になっているか確認 |
-| (c) heartbeat は `connected=True` だが `last_msg=未受信` | `MQTT heartbeat: connected=True, ..., last_msg=未受信` | broker にメッセージが届いていないか、届いているが rules 不一致の可能性。`mosquitto_sub -h localhost -t '#' -v -u parking -P <password>` で broker に届いているか確認。**届いていない → カメラ側**（MQTT プロファイルの接続先 IP・ポート・認証情報、イベントルールの MQTT アクション有効化を再確認）。**届いている → アプリ側**（`[receiver.mqtt.rules]` のキーと実際の RuleName を照合） |
-| (d) `未登録の RuleName` WARNING が出てカウントされない | `WARNING ... 未登録の RuleName 'car_in'。rules テーブルに無いため無視します` | `config.toml` の `[receiver.mqtt.rules]` キーと実際の線名（§8.1 でメモした RuleName）が一致していない。config.toml を修正してアプリを再起動 |
-| (e) カウントが2重になる | `入庫検出` が1通過で2回ログに出る | `config.toml` の `[receiver.mqtt]` で `min_event_interval` を設定して連続カウントを抑制する（例: `min_event_interval = 3.0`）。またはカメラ側のイベントルール設定を確認 |
+| (c) heartbeat は `connected=True` だが `last_msg=未受信` | `MQTT heartbeat: connected=True, ..., last_msg=未受信` | broker にメッセージが届いていないか、届いているが rules 不一致の可能性。`mosquitto_sub -h localhost -t '#' -v -u parking -P <password>` で broker に届いているか確認。**届いていない → カメラ側**（MQTT クライアント接続先 IP・ポート・認証情報、WiseAI 仮想線の定義を再確認）。**届いている → アプリ側**（`[receiver.mqtt.rules]` のキーと実際の RuleName を照合） |
+| (d) `未登録の RuleName` WARNING が出てカウントされない | `WARNING ... 未登録の RuleName 'entry'。rules テーブルに無いため無視します` | `config.toml` の `[receiver.mqtt.rules]` キーと実際の線名（§8.1 でメモした RuleName）が一致していない。config.toml を修正してアプリを再起動 |
+| (e) カウントが2重になる | `入庫検出` が1通過で2回ログに出る | カメラ側でイベントルールまたはカスタム MQTT 発行プロファイルを作成していないか確認する（二重配信の原因になる）。それらを削除するか無効化すること |
 
 ---
 
@@ -452,7 +479,6 @@ tail -f /opt/parking/parking.log
 現地テスト終了後、以下の値を確認・記録して持ち帰ること（[設計書 §13](DESIGN_MQTT_RECEIVER.md#13-未解決事項実装をブロックしない--テスト時に確定) 参照）。
 
 - [ ] **broker 認証情報:** 本番運用用のユーザー名・パスワードを決定したか
-- [ ] **本番の仮想線名（入庫/出庫）:** `[receiver.mqtt.rules]` に設定する実際の線名（`RuleName`）
 - [ ] **誤発火の有無:** 入庫時に出口線が発火しないか、出庫時に入口線が発火しないか
-- [ ] **スロットル影響の有無:** 「実行時間 60 / アラーム出力 5s」による取りこぼしは発生したか。発生した場合の `min_event_interval` の推奨値
+- [ ] **スロットル影響の有無:** 連続入庫で取りこぼしは発生したか。発生した場合の `min_event_interval` の推奨値
 - [ ] **QoS 変更の可否:** カメラ側 publish QoS を 1 に設定できるか（取りこぼし軽減のため。既定 QoS 0 は既知制約として受容可）

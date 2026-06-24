@@ -1,5 +1,7 @@
 # 結合手順書: カメラの接点 → アプリのカウント増減を確認するまで
 
+> ⚠️ **本書は接点経路（カメラOC → LinkBase → HTTP / GPIO）向け。この経路は現在開発中止中 (paused)・実機未検証です。現行・実機検証済みの受信経路は MQTT です（→ [DESIGN_MQTT_RECEIVER.md](DESIGN_MQTT_RECEIVER.md) / [SETUP_FIELD_TEST_MQTT.md](SETUP_FIELD_TEST_MQTT.md)）。**
+
 > カメラ(XNO-A6084R)が車を検知して出す接点信号を、Raspberry Pi → LinkBase → 本アプリ と流し、
 > 最終的に**アプリの現在台数が +1 / -1 されること**を確認するまでの手順をまとめる。
 > 関連: [REQUIREMENTS.md](../REQUIREMENTS.md) §0/§6.1/§8.1、[DESIGN_HTTP_RECEIVER.md](DESIGN_HTTP_RECEIVER.md)、[SPECIFICATION.md](SPECIFICATION.md)

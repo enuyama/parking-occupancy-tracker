@@ -147,9 +147,8 @@ else:
     # テスト用の bike など、対象外の線が来ても安全にスキップ
 ```
 
-- **本番の仮想線名が未確定でも実装をブロックしない**（設定値を後で埋めるだけ）。
-- 未登録の RuleName は WARNING で無視（テスト線・他用途の線が流れ込んでも誤カウントしない）。
-- 本番では対象物 car の入庫線・出庫線2本を、テストでは `bike` を rules に登録すればよい。
+- **本番の仮想線名は `entry`（入庫）/ `exit`（出庫）に確定済み（2026-06-24 実機確認）**。`[receiver.mqtt.rules]` への設定値は確定している。
+- 未登録の RuleName は WARNING で無視（他用途の線や自動配信される ONVIF イベントが流れ込んでも誤カウントしない）。
 - **本番は1カメラ前提（クライアント確定）**。`rules` のキーは `RuleName` のみでよく、カメラ MAC でのスコープは不要（ワイルドカード購読の `+` は将来カメラ追加に備えた保険）。将来複数カメラで同名線を区別する必要が出たら `MAC/RuleName` 単位への拡張を検討する（現時点では実装しない）。
 
 ### 4.4 重複除去（任意・保険）
@@ -194,11 +193,9 @@ min_event_interval = 0.0        # 連続カウント抑制（秒）。0=無効�
 heartbeat_interval = 60.0       # 死活ログを出す間隔（秒）。0=無効（§4.6）
 
 [receiver.mqtt.rules]           # RuleName(=仮想線名) → 方向 ("entry"/"exit")
-# 本番（対象物 car、出入口に2線）— 実際の線名が決まったら設定
-# car_in  = "entry"
-# car_out = "exit"
-# テスト用（自転車の単線）
-bike = "entry"
+# 現地確定値（2026-06-24実機確認）— WiseAI 仮想線名と一致させる
+entry = "entry"
+exit  = "exit"
 ```
 
 - `host = "localhost"` は **アプリが broker に繋ぐ先**。カメラが broker に繋ぐ先（Pi の LAN 内 IP）はカメラ側設定であり別物（§8）。
@@ -259,25 +256,24 @@ paho-mqtt>=2.0
 
 ## 8. カメラ側設定（クライアント／設置担当が実施）
 
-実機の「イベントルール」画面（`docs/イベントルール.png`）で確認した前提:
+**実機確認済み（2026-06-24）**: Hanwha XNO-A6084R は **MQTT クライアント接続を broker に向けるだけで、設定されているすべての ONVIF / WiseAI イベント（LineCrossing 含む）を自動 publish する**。現地キャプチャで motion / blur / relay 等、明示的にルール化していないイベントまで大量に自動配信されることを実測で確認済み。
 
-- カメラは **イベントルールに MQTT アクションを明示設定したトリガーのみ** publish する（＝それ以外は飛んでこない。ノイズが来ない反面、必要な線は必ずルール化が要る）。
-- 1ルール = 1トリガー（仮想線）→ アクション群（接点出力 / MQTT 等）。トピック末尾は**仮想線の名前**になる。
+この挙動から:
+- **LineCrossing カウントに必要なカメラ側設定は以下の2つだけ**:
+  1. **MQTT クライアント接続設定**: 接続先 = **Pi の LAN 内 IP : 1883**、認証を付けたなら username/password も。
+  2. **WiseAI 仮想線2本の定義（`entry` / `exit`、対象物フィルタ = 車両）**: この線名が `Source.RuleName` ＝トピック末尾になり、`[receiver.mqtt.rules]` のキーと一致する。
+- **「イベントルール作成 ＋ MQTT アクション有効化 ＋ カスタム MQTT 発行プロファイル」は LineCrossing カウントには不要**。実際に設定すると同一通過で二重 publish になるため、設定しないこと。
+- ~~片方しか MQTT を有効化しないとカウント片側欠落する~~: 自動配信が前提のため該当しない。
 
-本番で必要な設定:
+本番で必要な設定（確定値）:
 
-1. **仮想線を2本作成**（WiseAI、対象物 = 車両 car）。
-   - 入庫線・出庫線をそれぞれ作り、**線名を決める**（例 `car_in` / `car_out`）。この線名が `Source.RuleName` ＝トピック末尾になり、`[receiver.mqtt.rules]` のキーと一致させる。
-   - **各線の対象物フィルタを「車両」に限定**する。人・自転車で発火する設定だと誤カウントになる（テストでは `bike`=自転車で確認しているが、本番は car 限定にすること）。
-2. **イベントルールを2本作成**し、各々のトリガーに上記の線を割当て、**アクションで MQTT を有効化**する。
-   - 片方しか MQTT を有効化しないと、その方向しか届かず**カウントが片側欠落**する。
-3. **MQTT プロファイルの接続先を Pi の broker に向ける**（カメラの MQTT 設定画面。イベントルール画面では「MQTT: 1: test」のようにプロファイル番号で参照されている）。
-   - 接続先 = **Pi の LAN 内 IP : 1883**、認証を付けたなら username/password も。
-
-> broker IP・認証の最終値は**実装後にクライアント環境でのテスト時に確認**する（本書時点では未確定。設定で外出ししてあるためブロックしない）。
+1. **MQTT クライアント接続設定**（カメラの MQTT 設定画面）。
+   - 接続先 = **Pi の LAN 内 IP : 1883**、認証あり構成なら username/password も一致させる。
+2. **WiseAI 仮想線を2本定義**（対象物フィルタ = 車両 car）。
+   - 入庫線名: **`entry`**、出庫線名: **`exit`**（現地確定値。`[receiver.mqtt.rules]` のキーと一致）。
+   - 対象物選別はカメラ側で実施する。LineCrossing ペイロードに ObjectType は含まれないため、アプリ側での絞り込みは不可。
 
 確認・調整事項（テスト時）:
-- 入庫時に**入口線のみ**が発火し出口線が発火しないこと（1ゲート2線のため方向フィルタ設定が要る場合あり）。
 - イベントルール画面の「実行時間: 60」「アラーム出力: 5s」が **MQTT 発行間隔のスロットルになっていないか**（連続入庫の取りこぼし確認）。
 
 ## 9. broker（Mosquitto）構築（Pi 上）
@@ -349,9 +345,9 @@ mosquitto_pub -h localhost -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/
 mosquitto_pub -h localhost -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/bike' \
   -m '{"UtcTime":"2026-05-29T00:00:04Z","Source":{"RuleName":"bike"},"Data":{"State":"false","ObjectId":"","Action":""}}'
 
-# 出庫線（rules に car_out="exit" を登録した上で）→ -1
-mosquitto_pub -h localhost -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/car_out' \
-  -m '{"Source":{"RuleName":"car_out"},"Data":{"State":"true","ObjectId":"2"}}'
+# 出庫線（rules に exit="exit" を登録した上で）→ -1
+mosquitto_pub -h localhost -t 'AA:BB/onvif-ej/OpenApp/WiseAI/LineCrossing/&vs-0/exit' \
+  -m '{"Source":{"RuleName":"exit"},"Data":{"State":"true","ObjectId":"2"}}'
 
 # 未登録 RuleName → WARNING で無視されること
 mosquitto_pub -h localhost -t '.../unknown' \
@@ -385,10 +381,16 @@ mosquitto_pub -h localhost -t '.../unknown' \
 
 ## 13. 未解決事項（実装をブロックしない / テスト時に確定）
 
-- **broker の IP・ポート・認証情報**: クライアント環境テスト時に確認し `[receiver.mqtt]` へ。
-- **本番の仮想線名（入庫/出庫）**: クライアントが2線作成時に確定し `[receiver.mqtt.rules]` へ。テスト中は `bike`。
-- **1ゲート2線の方向フィルタ**: 入庫時に出口線が誤発火しないか実機確認。
+### 解決済み（2026-06-24 実機確認）
+
+- ~~**broker の IP・ポート・認証情報**~~: → 解決。Pi の LAN 内 IP:1883 + 認証で確立済み。`[receiver.mqtt]` に設定済み。
+- ~~**本番の仮想線名（入庫/出庫）**~~: → 解決。`entry`（入庫）/ `exit`（出庫）に確定。`[receiver.mqtt.rules]` に反映済み。
+- ~~**対象物フィルタ**~~: → 解決。カメラ側 WiseAI 仮想線の対象物フィルタを車両に設定することで対応。LineCrossing ペイロードに ObjectType は含まれないためアプリ側での絞り込みは不可・不要（カメラ側完結）。
+- ~~**min_event_interval の値**~~: → 解決。実測で「1通過 = true 1発のみ」を確認。`min_event_interval = 0.0`（無効）で十分。
+- ~~**1ゲート2線の方向フィルタ**~~: → 解決。実機動作で入庫線/出庫線が独立して発火することを確認。誤発火なし。
+
+### 未解決（引き続き要確認）
+
 - **「実行時間60」「アラーム出力5s」の影響**: MQTT 発行間隔のスロットルになっていないか実機確認。なっていれば `min_event_interval` で吸収 or カメラ側調整。
-- **対象物フィルタ**: 本番は各仮想線を car 限定に設定（テストは bike）。人・自転車での誤発火が無いか実機確認。
-- **重複除去の要否**: 同一 ObjectId の多重 `true` が実機で出るなら `ObjectId` 重複除去を有効化。
+- **重複除去の要否**: 同一 ObjectId の多重 `true` が実機で出るなら `ObjectId` 重複除去を有効化（現状は未観測のため既定無効のまま）。
 - **配信品質（§3.1）**: 取りこぼしを許容できない要件なら、カメラ側 publish QoS を 1 にできるか確認。既定（QoS 0）では既知の制約として受容。

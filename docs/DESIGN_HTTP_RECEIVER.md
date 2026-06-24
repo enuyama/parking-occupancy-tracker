@@ -1,5 +1,7 @@
 # 受信層設計書: LinkBase 経由 HTTP 受信
 
+> ⚠️ **本書は接点経路（カメラOC → LinkBase → HTTP / GPIO）向け。この経路は現在開発中止中 (paused)・実機未検証です。現行・実機検証済みの受信経路は MQTT です（→ [DESIGN_MQTT_RECEIVER.md](DESIGN_MQTT_RECEIVER.md) / [SETUP_FIELD_TEST_MQTT.md](SETUP_FIELD_TEST_MQTT.md)）。**
+
 > **位置付け:** REQUIREMENTS.md §5.1 / §6.1 / §7 / §10 で「カメラ OC → Pi GPIO 直結」としていた受信方式を、
 > 「カメラ OC → LinkBase (満空灯制御装置) → localhost HTTP → 本アプリ」に変更する。本書はその差分設計のみを扱う。
 > REQUIREMENTS.md の他セクション（カウント・永続化・満空混判定など）は変更なし。

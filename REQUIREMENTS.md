@@ -3,20 +3,22 @@
 > **次セッションの自分へ:** §10「実装ガイド（フェーズ1）」を読めばそのまま実装に入れる。
 > 現在地・確定事項は §0、迷ったら §0 と §10 を見ること。新たに何かが決まったら §0 の意思決定ログに追記する。
 
-## 0. 現在地（最終更新: 2026-05-18）
+## 0. 現在地（最終更新: 2026-06-24）
 
 ### ステータス
-- 要件整理フェーズが完了。**コード未着手。** リポジトリには本ファイル＋カメラ仕様書PDF＋受信層設計書 (`docs/`) のみ。
-- フェーズ1（カメラ信号受信 → カウント → 状態保持）の実装に着手してよい段階。
+- **フェーズ1 実装完了。MQTT受信経路を実機検証済み（2026-06-24 確定）。**
+- 現行・実機検証済みの受信経路は **MQTT**（カメラ → 同一Pi上Mosquitto → 本アプリ、`receiver.type="mqtt"`、`receivers/mqtt.py`）。設計は [docs/DESIGN_MQTT_RECEIVER.md](docs/DESIGN_MQTT_RECEIVER.md)、現地手順は [docs/SETUP_FIELD_TEST_MQTT.md](docs/SETUP_FIELD_TEST_MQTT.md)。
+- 接点経路（カメラOC → LinkBase → HTTP / GPIO）は実装済みだが、**現在開発中止中 (paused) ・実機未検証**。関連ドキュメント: [docs/DESIGN_HTTP_RECEIVER.md](docs/DESIGN_HTTP_RECEIVER.md)、[docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md)。
+- ~~要件整理フェーズが完了。**コード未着手。** リポジトリには本ファイル＋カメラ仕様書PDF＋受信層設計書 (`docs/`) のみ。~~ ← 旧記述（2026-05-18 時点）。
 - **カメラ型番が確定（XNO-A6084R）**。
-- **受信方式を変更（2026-05-18）**: 同一 Pi 上の LinkBase（満空灯制御装置）が既にカメラ OC を GPIO で受け取り、HTTP（通知モード4）で他アプリに転送できるため、本アプリは **LinkBase からの HTTP リクエストを localhost で受ける** 方式に切り替える。配線・電気仕様詰めをスキップでき、参考実装（`../tbbox-playlist-switcher`）と同じプロトコルが流用できる。詳細設計は **[docs/DESIGN_HTTP_RECEIVER.md](docs/DESIGN_HTTP_RECEIVER.md)** を参照。
+- **受信方式を変更（2026-05-18）**: 同一 Pi 上の LinkBase（満空灯制御装置）が既にカメラ OC を GPIO で受け取り、HTTP（通知モード4）で他アプリに転送できるため、本アプリは **LinkBase からの HTTP リクエストを localhost で受ける** 方式に切り替える。配線・電気仕様詰めをスキップでき、参考実装（`../tbbox-playlist-switcher`）と同じプロトコルが流用できる。詳細設計は **[docs/DESIGN_HTTP_RECEIVER.md](docs/DESIGN_HTTP_RECEIVER.md)** を参照。→ **この経路は現在開発中止中 (paused)**。現行経路は MQTT（下記 #8）。
   - これにより §5.1 / §6.1 / §7 / §10 の「受信方式 = GPIO 直結」の記述は上書きされる（受信層 abstraction はそのまま維持し、`receivers/http.py` を実装の主、`receivers/gpio.py` は将来の代替として残置）。
 
 ### 確定事項（意思決定ログ）
 1. **目標はフェーズ1のみ**: カメラ信号を受信 → Pi内で台数カウント（入庫+1/出庫-1, 0〜総台数でクランプ）→ 状態（台数・満空混）を永続保持。サイネージ出力・手動ボタン・LinkBase・Web画面はフェーズ2（今回作り込まない／拡張口だけ残す）。
 2. **ソフトの責務は「入庫信号」「出庫信号」の2系統の処理のみ**。複数カメラ・複数ゲートがあっても、入庫線・出庫線への集約はクライアント／外部業者側の責務。ソフトから見える入力は常に2系統。
 3. ~~**カメラ受信方式は GPIO 接点入力で確定**~~ → **2026-05-18 変更: LinkBase 経由 HTTP 受信に切替**。カメラ OC は LinkBase（同一 Pi）が受け、`GET /api/control?alert=...` で本アプリに転送する。受信層 abstraction は維持し、`receivers/http.py` を主、`receivers/gpio.py` は代替として残置。詳細は `docs/DESIGN_HTTP_RECEIVER.md`。
-4. **満空混は残台数の割合で判定**。暫定しきい値: 残0台＝満 / 残〜10%＝混 / それ超＝空。総台数・しきい値は設定ファイルで可変。実値はクライアント確認待ちだが**暫定値で進めてよい**。
+4. ~~**満空混は残台数の割合で判定**。暫定しきい値: 残0台＝満 / 残〜10%＝混 / それ超＝空。~~ → **2026-05-18 変更: 現在台数の絶対値判定に切替**。`current >= full_at` で満、`current >= crowded_at` で混、それ未満で空。`full_at` / `crowded_at` は設定ファイル (`config.toml [thresholds]`) で変更可能。実値はクライアント確認待ちだが**暫定値で進めてよい**（§5.4 参照）。
 5. **言語は Python**（gpiozero でGPIO）。systemd でサービス化。永続化は単一の JSON ファイル（SQLite は過剰のため不採用 / 2026-05-18 変更）。履歴は `parking.log` に追記される。
 6. **カメラ確定: Hanwha Vision XNO-A6084R**（2MP AI IRバレットカメラ, PoE Class3, IP66/67, IK10）。アラーム I/O 2ポート（IO1=オレンジ, IO2=茶, GND=黒）、**出力はオープンコレクタ方式**。AIエンジンで「仮想線(交差・方向)」「車両カウント」が利用可能で、入庫/出庫を別ポートに割り当てる構成が成立する。詳細は §8.1（=確認結果反映済）。
 7. **Pi 側のGPIO接続はオープンコレクタを内蔵プルアップで受ける構成**。カメラ側出力（OC）が ON で GND 側に引き込まれ、Pi 側は LOW として検出する。電圧整合・サージ対策のためフォトカプラを挟む方針は §6.1 のまま維持。
@@ -132,13 +134,15 @@ Raspberry Pi 上で動作するエッジシステムとして構築する。
 
 ## 7. システム構成（フェーズ1）
 
+> **注記（2026-06-24）:** 現行・実機検証済みの受信経路は **MQTT**（カメラ → 同一Pi上Mosquitto → 本アプリ）。下図は接点(GPIO/OC)経路を前提とした当初設計図であり、現行構成とは異なる。現行構成は [docs/DESIGN_MQTT_RECEIVER.md](docs/DESIGN_MQTT_RECEIVER.md) を参照。
+
 ```
 [XNO-A6084R] ─IO1(入庫, OCパルス)──┐
               ─IO2(出庫, OCパルス)──┤(フォトカプラ等)──> [ Raspberry Pi ]
                                                       - 受信層（GPIO接点入力 / 差し替え用スタブ）
                                                       - カウント・状態管理（入庫+1 出庫-1, 0..総台数）
-                                                      - 満空混 判定（残台数の割合）
-                                                      - 永続化(SQLite等) / ログ
+                                                      - 満空混 判定（現在台数の絶対値: full_at/crowded_at）
+                                                      - 永続化 / ログ
                                                     （フェーズ2で）
                                                       + 手動ボタン接点入力（外部業者製）
                                                       + サイネージ出力
@@ -253,8 +257,8 @@ file  = "parking.log"
 ### 10.4 コアの振る舞い（counter.py）
 - `current` を保持。`record_entry()` → `current = min(current+1, total)`、`record_exit()` → `current = max(current-1, 0)`。
 - クランプで弾いた（範囲外）イベントは戻り値 or 例外で呼び出し側に伝え、WARNING ログを残す。
-- `status()` → 残台数 `total - current` の割合で `FULL / CROWDED / EMPTY` を返す。
-  - `remaining_ratio <= full_ratio` → FULL、`<= crowded_ratio` → CROWDED、それ以外 → EMPTY。
+- `status()` → 現在台数 `current` の絶対値で `FULL / CROWDED / EMPTY` を返す（2026-05-18 変更: 割合判定から切替）。
+  - `current >= full_at` → FULL、`current >= crowded_at` → CROWDED、それ以外 → EMPTY。
   - ヒステリシス: 直前ステータスからの遷移時にしきい値を少しずらす（実装は任意。まずは無しでOK、設定で後付け）。
 - 状態が変化したら `store` に永続化し、ステータス変化を INFO ログ＋events テーブルに記録。
 

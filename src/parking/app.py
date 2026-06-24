@@ -151,6 +151,7 @@ class Application:
             result = record()
             if not result.accepted:
                 # 範囲外（counter 側で WARNING 済み）。台数は変えない。
+                logger.debug("%s イベントは範囲外のため却下されました (current=%d)", label, self.counter.current)
                 return
             logger.info(
                 "%s検出: current=%d/%d status=%s",

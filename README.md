@@ -6,13 +6,29 @@
 
 ## アーキ概要 (フェーズ1)
 
+### MQTT 経路（現行・主経路、2026-06-24 実機検証済み）
+
 ```
-[カメラ XNO-A6084R] --OC--> [LinkBase (同一Pi)] --HTTP--> [本アプリ] --SQLite-->
-                                                              │
-                                                              └── counter / status
+[カメラ XNO-A6084R] --LAN--> [Mosquitto broker (同一Pi)] ---> [本アプリ MqttReceiver]
+  WiseAI 仮想線交差                  :1883                         │
+  (entry / exit)                                                    └── counter / status
 ```
 
-- 受信方式は **LinkBase 経由 HTTP** (`GET /api/control?alert=...`) がデフォルト。
+- 受信方式は `receiver.type = "mqtt"` が現行デフォルト。
+- カメラは MQTT クライアント接続を broker に向けるだけで、全 ONVIF/WiseAI イベント（LineCrossing 含む）を自動 publish する。
+- カメラ側設定: (1) MQTT クライアント接続（接続先 = Pi の LAN 内 IP:1883）、(2) WiseAI 仮想線2本（`entry` / `exit`、対象物 = 車両）。
+- 詳細は [docs/DESIGN_MQTT_RECEIVER.md](docs/DESIGN_MQTT_RECEIVER.md) を参照。
+
+### 接点経路（中止中）
+
+```
+[カメラ XNO-A6084R] --OC--> [LinkBase (同一Pi)] --HTTP--> [本アプリ HttpReceiver]
+```
+
+- LinkBase 経由 HTTP 受信（`GET /api/control?alert=...`）。現在は使用していない。
+
+---
+
 - 開発時は `receiver.type = "dummy"` で stdin から入庫/出庫を打ち込んで検証可能。
 
 ## セットアップ

@@ -1,16 +1,20 @@
 [Unit]
 Description=Parking Occupancy Tracker
-After=network-online.target light-controller.service mosquitto.service
+After=network-online.target mosquitto.service
+# light-controller.service は接点経路運用時の依存。MQTT 運用では不要だが残置しても害はない。
+# After=network-online.target light-controller.service mosquitto.service
 Wants=network-online.target
-# receiver.type="mqtt" で broker(Mosquitto) を同一 Pi に同居運用する場合のみ有効化する。
+# receiver.type="mqtt" で broker(Mosquitto) を同一 Pi に同居運用する場合は以下をコメント解除。
 # HTTP/GPIO 運用の Pi に mosquitto が無いと Requires で起動不能になるため既定はコメントアウト。
 # Requires=mosquitto.service
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/parking
-Environment=PYTHONPATH=/opt/parking/src
-ExecStart=/opt/parking/.venv/bin/python -m parking /opt/parking/config.toml
+User=mtx
+Group=mtx
+WorkingDirectory=/opt/parking/parking-occupancy-tracker
+Environment=PYTHONPATH=/opt/parking/parking-occupancy-tracker/src
+ExecStart=/opt/parking/parking-occupancy-tracker/.venv/bin/python -m parking /opt/parking/parking-occupancy-tracker/config.toml
 Restart=on-failure
 RestartSec=2s
 StandardOutput=journal

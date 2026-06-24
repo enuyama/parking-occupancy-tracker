@@ -62,6 +62,20 @@ class MqttReceiver:
         self._stopping = False
 
     # ------------------------------------------------------------------
+    # 共通ヘルパ
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _payload_text(payload, limit: int = 1000) -> str:
+        """ログ用にペイロードを安全に文字列化し、長すぎる場合は切り詰める。"""
+        if isinstance(payload, (bytes, bytearray)):
+            text = payload.decode("utf-8", errors="replace")
+        else:
+            text = str(payload)
+        if len(text) > limit:
+            return f"{text[:limit]}...(切り詰め, 全{len(text)}バイト)"
+        return text
+
+    # ------------------------------------------------------------------
     # paho-mqtt コールバック
     # ------------------------------------------------------------------
     def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
@@ -106,6 +120,10 @@ class MqttReceiver:
         reason = args[1] if len(args) >= 2 else (args[0] if args else None)
         logger.warning("MQTT が切断されました (reason=%s)。自動再接続を試みます。", reason)
 
+    def _on_subscribe(self, client, userdata, mid, reason_code_list, properties=None) -> None:
+        """SUBACK 受信時。購読が実際に成立したか・付与 QoS を確認できるよう記録する。"""
+        logger.debug("MQTT SUBACK 受信: mid=%s 付与結果=%s", mid, reason_code_list)
+
     def _on_message(self, client, userdata, message) -> None:
         """受信メッセージの処理。1メッセージの異常で受信ループを止めないよう全体を try/except で囲う。"""
         try:
@@ -114,19 +132,27 @@ class MqttReceiver:
                 self._msg_total += 1
                 self._last_message_at = now_utc
 
+            # A. 全受信メッセージの生トレース（採用/破棄に関わらず全メッセージを記録）。
+            # 全メッセージで発火するホットパスのため、DEBUG 無効時はペイロードのデコード自体を避ける
+            # （%-style は %s 置換を遅延するが、引数式 _payload_text(...) の評価は遅延しないため）。
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("MQTT受信(raw): topic=%r payload=%s", message.topic, self._payload_text(message.payload))
+
             try:
                 msg = json.loads(message.payload)
             except (ValueError, TypeError) as e:
                 logger.warning(
-                    "MQTT メッセージの JSON 解析に失敗 (topic=%r): %s。破棄します。",
+                    "MQTT メッセージの JSON 解析に失敗 (topic=%r): %s。payload=%s。破棄します。",
                     message.topic,
                     e,
+                    self._payload_text(message.payload),
                 )
                 return
             if not isinstance(msg, dict):
                 logger.warning(
-                    "MQTT メッセージが JSON オブジェクトではありません (topic=%r)。破棄します。",
+                    "MQTT メッセージが JSON オブジェクトではありません (topic=%r)。payload=%s。破棄します。",
                     message.topic,
+                    self._payload_text(message.payload),
                 )
                 return
 
@@ -142,12 +168,24 @@ class MqttReceiver:
                 )
                 return
 
-            rule_name = (msg.get("Source") or {}).get("RuleName")
+            source = msg.get("Source") or {}
+            rule_name = source.get("RuleName")
             direction = self._cfg.rules.get(rule_name)
-            if direction == "entry":
-                self._fire(rule_name, "入庫", self._on_entry)
-            elif direction == "exit":
-                self._fire(rule_name, "出庫", self._on_exit)
+
+            # B. 入庫/出庫の実データを DEBUG 出力。
+            if direction in ("entry", "exit"):
+                event_info = {
+                    "topic": message.topic,
+                    "RuleName": rule_name,
+                    "State": data.get("State"),  # lower 化前の元の値
+                    "ObjectId": data.get("ObjectId"),
+                    "Action": data.get("Action"),
+                    "UtcTime": msg.get("UtcTime"),
+                }
+                if direction == "entry":
+                    self._fire(rule_name, "入庫", self._on_entry, event_info)
+                else:
+                    self._fire(rule_name, "出庫", self._on_exit, event_info)
             else:
                 logger.warning(
                     "未登録の RuleName %r。rules テーブルに無いため無視します (topic=%r)",
@@ -156,9 +194,17 @@ class MqttReceiver:
                 )
         except Exception:
             # 想定外スキーマ・予期しない例外でも受信ループを止めない。
-            logger.exception("MQTT メッセージ処理中に予期しない例外。当該メッセージを破棄して継続します。")
+            try:
+                payload_text = self._payload_text(message.payload)
+            except Exception:
+                payload_text = "(取得不可)"
+            logger.exception(
+                "MQTT メッセージ処理中に予期しない例外。topic=%r payload=%s 当該メッセージを破棄して継続します。",
+                message.topic,
+                payload_text,
+            )
 
-    def _fire(self, rule_name: str, label: str, callback: EventCallback) -> None:
+    def _fire(self, rule_name: str, label: str, callback: EventCallback, event_info: dict) -> None:
         """min_event_interval(RuleName 単位)で抑制しつつカウントコールバックを呼ぶ。ロックで保護する。"""
         with self._lock:
             now = time.monotonic()
@@ -167,16 +213,17 @@ class MqttReceiver:
             if self._cfg.min_event_interval > 0 and last > 0 and elapsed < self._cfg.min_event_interval:
                 logger.info(
                     "%s(線=%r): min_event_interval(%.3fs)以内(%.3fs)のため無視。"
-                    "連続通過を取りこぼす場合は値を下げる/カメラ側のパルス間隔を見直す。",
+                    "連続通過を取りこぼす場合は値を下げる/カメラ側のパルス間隔を見直す。data=%s",
                     label,
                     rule_name,
                     self._cfg.min_event_interval,
                     elapsed,
+                    event_info,
                 )
                 return
             self._last_count_at[rule_name] = now
             self._counted_total += 1
-            logger.debug("%s検出(線=%r) → カウント反映", label, rule_name)
+            logger.debug("%s検出(線=%r): カウント反映。data=%s", label, rule_name, event_info)
             try:
                 callback()
             except Exception:
@@ -221,6 +268,7 @@ class MqttReceiver:
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
+        client.on_subscribe = self._on_subscribe
 
         # 切断・接続失敗時の自動再接続を指数バックオフで行う（LAN 断・broker 再起動に耐える）。
         client.reconnect_delay_set(min_delay=1, max_delay=60)
@@ -252,6 +300,8 @@ class MqttReceiver:
             self._cfg.min_event_interval,
             self._cfg.heartbeat_interval,
         )
+        # F. 起動時に rules マッピングを DEBUG 出力。
+        logger.debug("MQTT rules マッピング(RuleName→方向): %s", self._cfg.rules)
 
     def stop(self) -> None:
         # 二重呼び出し・未 start() でも安全に通る。

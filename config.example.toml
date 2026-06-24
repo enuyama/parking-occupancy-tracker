@@ -52,12 +52,12 @@ count_state = "true"        # Data.State がこの値のときだけカウント
 min_event_interval = 0.0    # 連続カウント抑制（秒）。0=無効。チャタリング/再送対策の保険
 heartbeat_interval = 60.0   # 死活ログを出す間隔（秒）。0=無効
 
-# RuleName(=仮想線名) → 方向。各値は "entry" または "exit"。
-# 本番（対象物 car、出入口に2線）は実際の線名が決まったら設定する:
-# car_in  = "entry"
-# car_out = "exit"
+# RuleName(=WiseAI仮想線名) → 方向。カメラの仮想線名と一致させる（現地確定値）
+# 各値は "entry" または "exit"。
+# ※ bike はテスト用として使用していたが、本番では使用しない。
 [receiver.mqtt.rules]
-bike = "entry"              # テスト用（自転車の単線）。本番では削除し car の2線に置き換える
+entry = "entry"
+exit  = "exit"
 
 [storage]
 # 現在台数とステータスを保存する JSON ファイル。中身は最新状態の1組のみ。
