@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# 本番ラズパイ相当（Linux/X11）の GUI を、Xvfb + VNC で「画面に出して実際に操作」する。
+# 本番ラズパイ相当（Linux/X11）の GUI を、Xvfb + noVNC で「ブラウザに出して実際に操作」する。
 #
-# Docker コンテナ内で Xvfb 仮想ディスプレイにアプリを表示し、x11vnc で配信する。
-# 起動後、macOS から VNC で接続すると、その GUI を自分のマウスでクリックして
-# 動作確認できる（Linux/X11 上の本物の操作になる）。
+# Docker コンテナ内で Xvfb 仮想ディスプレイにアプリを表示し、noVNC(ブラウザVNC) で配信する。
+# 起動後、ホストのブラウザで http://localhost:6080/vnc.html を開くと、その GUI を
+# 自分のマウスでクリックして動作確認できる（Linux/X11 上の本物の操作になる）。
 #
 # 使い方:
 #   bash tools/preview_gui_linux.sh
-#   起動したら macOS の Finder で  Cmd+K → サーバ「vnc://localhost:5900」 で接続。
-#   （または「画面共有」アプリでホスト localhost:5900。パスワードなし）
+#   起動したら ブラウザで http://localhost:6080/vnc.html を開き、[Connect] を押す。
+#   （パスワード不要。macOS の「画面共有」アプリは不要）
 #   終了は このターミナルで Ctrl-C。
 #
-# 注意: ローカル開発用。VNC はパスワード無しで localhost:5900 に出る。
+# 注意: ローカル開発用。localhost:6080 にパスワード無しで出る（VNC 自体は内部のみ）。
 #
 set -euo pipefail
 
@@ -25,5 +25,5 @@ if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
   exit 2
 fi
 
-echo "起動準備中... 起動後、macOS から vnc://localhost:5900 に接続してください。"
-exec docker run --rm -p 5900:5900 -v "$PROJECT_ROOT":/work:ro "$IMAGE" bash /work/tools/_container_preview.sh
+echo "起動準備中... 起動後、ブラウザで http://localhost:6080/vnc.html を開いて [Connect]。"
+exec docker run --rm -p 6080:6080 -v "$PROJECT_ROOT":/work:ro "$IMAGE" bash /work/tools/_container_preview.sh

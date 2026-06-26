@@ -103,8 +103,8 @@ Docker があれば、本番ラズパイと同じ Linux/X11 環境で GUI を検
 # 実 OS クリック（単発/ダブルクリック/高速連打）を自動送出して動作を自動検証
 bash tools/verify_gui_linux.sh
 
-# GUI を画面に出して自分のマウスで操作する（VNC）。
-# 起動後 macOS の Finder で Cmd+K → vnc://localhost:5900 で接続
+# GUI をブラウザに出して自分のマウスで操作する（noVNC）。
+# 起動後 ブラウザで http://localhost:6080/vnc.html を開き [Connect]（パスワード不要）
 bash tools/preview_gui_linux.sh
 ```
 
