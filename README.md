@@ -65,6 +65,49 @@ python -m parking config.toml
 
 引数を省略するとカレントディレクトリの `config.toml` を読む。
 
+## GUI（Raspberry Pi タッチパネル）
+
+`[gui].enabled = true` にすると、起動時に満空混ステータスと手動操作パネルを表示する Tkinter ウィンドウが立ち上がる。MQTT 自動カウントと**同時稼働**し、画面から手動補正できる。
+
+```toml
+[gui]
+enabled = true           # false で従来のヘッドレス動作
+fullscreen = false       # 本番タッチパネルでは true 推奨（Esc で解除）
+poll_interval_ms = 200   # 画面の状態更新間隔(ms)。50..5000
+```
+
+画面は管理室の係員が操作する前提で、**最も頻度の高い「現在の台数」を主役**に据えた 1 画面構成:
+
+- **ステータス（最上段）**: 満車／混雑／空車を語＋色で表示（満=赤・混=橙・空=緑）。下に `現在 / 満車台数`（例 `20 / 19`）を併記し妥当性を確認しやすくする。
+- **現在の台数（主役・大）**: 大きな水色の `[－] 数値 [＋]`。タップで1台ずつ、**長押しすると連打**（押しっぱなしでまとめて補正）。0〜total_spaces でガード。
+- **満車台数 / 混雑台数（下部・小さめ）**: それぞれ `[－] 数値 [＋]`（長押し連打可）。`1 <= crowded_at <= full_at <= total_spaces` を常に満たすようガード。
+- **限界フィードバック**: 上限/下限に達して増減できないときは数値を**赤く点滅**させ、「押しても無反応」を防ぐ。押下は即時に画面へ反映。
+
+調整した `full_at` / `crowded_at` と現在台数は `parking_state.json` に保存され、再起動後も復元される。
+
+### 依存と起動上の注意
+
+- Tkinter は Python 標準。Raspberry Pi OS では未導入の場合 `sudo apt install python3-tk` が必要。
+- **日本語フォントが必要**。未導入だと「満車」「現在の台数」等が □（豆腐）になる。`sudo apt install fonts-noto-cjk` を入れること。
+- X（デスクトップ）環境で起動すること。SSH やヘッドレス起動時は `DISPLAY` を指定する（例: `DISPLAY=:0 python -m parking config.toml`）。
+- GUI モジュールの読み込み・初期化に失敗した場合は、警告ログを出してヘッドレス動作（受信のみ）にフォールバックする。
+- systemd で自動起動する場合は X セッション配下で起動し、`Environment=DISPLAY=:0` 等を設定する。
+
+> 補足: macOS の Aqua 版 Tkinter は実マウスのクリック処理が特殊で、mac ローカルではボタンがうまく反応しないことがある（本番ラズパイ=Linux/X11 には無関係）。GUI の動作確認は下記ツールで Linux/X11 上で行うこと。
+
+### GUI を Linux/X11（ラズパイ相当）で確認する
+
+Docker があれば、本番ラズパイと同じ Linux/X11 環境で GUI を検証・プレビューできる（macOS の挙動に惑わされない）。
+
+```bash
+# 実 OS クリック（単発/ダブルクリック/高速連打）を自動送出して動作を自動検証
+bash tools/verify_gui_linux.sh
+
+# GUI を画面に出して自分のマウスで操作する（VNC）。
+# 起動後 macOS の Finder で Cmd+K → vnc://localhost:5900 で接続
+bash tools/preview_gui_linux.sh
+```
+
 ## 動作確認
 
 ### dummy 受信で手動操作
@@ -161,6 +204,7 @@ parking-occupancy-tracker/
 │  ├─ app.py
 │  ├─ config.py
 │  ├─ counter.py
+│  ├─ gui.py     # Raspberry Pi タッチパネル GUI (Tkinter)
 │  ├─ models.py
 │  ├─ store.py
 │  └─ receivers/

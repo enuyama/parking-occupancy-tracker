@@ -82,6 +82,13 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
+class GuiConfig:
+    enabled: bool
+    fullscreen: bool
+    poll_interval_ms: int
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str
     file: str
@@ -94,6 +101,7 @@ class Config:
     receiver: ReceiverConfig
     storage: StorageConfig
     logging: LoggingConfig
+    gui: GuiConfig
 
     def summary(self) -> str:
         """起動ログに出す1行サマリ。設定の取り違えを早期発見するため。"""
@@ -125,7 +133,9 @@ class Config:
             f"total_spaces={self.parking.total_spaces}, "
             f"crowded_at={self.thresholds.crowded_at}, full_at={self.thresholds.full_at}, "
             f"receiver={rcv}, state_file={self.storage.state_file}, "
-            f"log_level={self.logging.level}, log_file={self.logging.file}"
+            f"log_level={self.logging.level}, log_file={self.logging.file}, "
+            f"gui(enabled={self.gui.enabled}, fullscreen={self.gui.fullscreen}, "
+            f"poll={self.gui.poll_interval_ms}ms)"
         )
 
 
@@ -182,6 +192,15 @@ def _as_str(d: dict[str, Any], section: str, key: str, default: str | None = Non
 
 def _as_bool(d: dict[str, Any], section: str, key: str) -> bool:
     v = _require(d, section, key)
+    if not isinstance(v, bool):
+        raise ConfigError(f"{section}.{key} は true/false で指定してください（実際: {v!r}）。")
+    return v
+
+
+def _as_bool_default(d: dict[str, Any], section: str, key: str, default: bool) -> bool:
+    if key not in d:
+        return default
+    v = d[key]
     if not isinstance(v, bool):
         raise ConfigError(f"{section}.{key} は true/false で指定してください（実際: {v!r}）。")
     return v
@@ -359,10 +378,26 @@ def load_config(path: str | Path) -> Config:
         raise ConfigError(f"logging.level は {valid_levels} のいずれか（実際: {level!r}）。")
     logging_cfg = LoggingConfig(level=level, file=_as_str(log_raw, "logging", "file"))
 
+    # [gui]（任意。省略時は後方互換のためデフォルトを採用し、既存 config.toml を壊さない）
+    gui_raw = raw.get("gui", {})
+    if not isinstance(gui_raw, dict):
+        raise ConfigError(f"[gui] はテーブル（セクション）である必要があります（実際: {type(gui_raw).__name__}）。")
+    poll_interval_ms = _as_int(gui_raw, "gui", "poll_interval_ms", default=200)
+    if not (50 <= poll_interval_ms <= 5000):
+        raise ConfigError(
+            f"gui.poll_interval_ms は 50..5000（実際: {poll_interval_ms}）。"
+        )
+    gui = GuiConfig(
+        enabled=_as_bool_default(gui_raw, "gui", "enabled", default=False),
+        fullscreen=_as_bool_default(gui_raw, "gui", "fullscreen", default=False),
+        poll_interval_ms=poll_interval_ms,
+    )
+
     return Config(
         parking=parking,
         thresholds=thresholds,
         receiver=receiver,
         storage=storage,
         logging=logging_cfg,
+        gui=gui,
     )

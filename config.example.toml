@@ -64,6 +64,12 @@ exit  = "exit"
 # 履歴は logging.file に追記されるのでここでは持たない。
 state_file = "parking_state.json"
 
+[gui]
+# Raspberry Pi のタッチ/ディスプレイ向け GUI。
+enabled = true           # false で従来のヘッドレス動作（ウィンドウを出さない）
+fullscreen = false       # 本番タッチパネルでは true 推奨
+poll_interval_ms = 200   # 画面の状態更新間隔(ms)。50..5000
+
 [logging]
 level = "INFO"
 file  = "parking.log"

@@ -19,8 +19,14 @@ class Store:
         {
             "current_count": 12,
             "status": "CROWDED",
-            "updated_at": "2026-05-18T07:34:21.123456+00:00"
+            "updated_at": "2026-05-18T07:34:21.123456+00:00",
+            "full_at": 100,
+            "crowded_at": 80
         }
+
+    full_at / crowded_at は GUI から調整される満車・混雑閾値。後方互換のため、
+    キーが無い旧フォーマットも復元できる（その場合 State.full_at /
+    State.crowded_at は None）。
 
     履歴は logging モジュール経由で parking.log に残るのでここでは持たない。
     書き込みは tempfile + os.replace で原子的に行う（電源断時の半端書き込み防止）。
@@ -56,10 +62,19 @@ class Store:
             return None
 
         try:
+            # full_at / crowded_at は後方互換: キーが無ければ None（呼び出し側が
+            # config 値を採用）。キーがあれば int 化し、不正な型なら既存の
+            # 不正データ扱いに合流する。
+            raw_full_at = data.get("full_at")
+            full_at = None if raw_full_at is None else int(raw_full_at)
+            raw_crowded_at = data.get("crowded_at")
+            crowded_at = None if raw_crowded_at is None else int(raw_crowded_at)
             state = State(
                 current_count=int(data["current_count"]),
                 status=OccupancyStatus(data["status"]),
                 updated_at=datetime.fromisoformat(data["updated_at"]),
+                full_at=full_at,
+                crowded_at=crowded_at,
             )
         except (KeyError, ValueError, TypeError) as e:
             logger.error(
@@ -72,11 +87,19 @@ class Store:
         logger.debug("状態ファイル復元: %r", state)
         return state
 
-    def save_state(self, current_count: int, status: OccupancyStatus) -> None:
+    def save_state(
+        self,
+        current_count: int,
+        status: OccupancyStatus,
+        full_at: int,
+        crowded_at: int,
+    ) -> None:
         payload = {
             "current_count": current_count,
             "status": status.value,
             "updated_at": datetime.now(timezone.utc).isoformat(),
+            "full_at": full_at,
+            "crowded_at": crowded_at,
         }
         # 原子的書き込み: 同一ディレクトリに tempfile を作って os.replace
         dirpath = self._path.parent
@@ -99,7 +122,14 @@ class Store:
             except OSError:
                 pass
             raise
-        logger.debug("状態保存: current=%d status=%s -> %s", current_count, status.value, self._path)
+        logger.debug(
+            "状態保存: current=%d status=%s full_at=%d crowded_at=%d -> %s",
+            current_count,
+            status.value,
+            full_at,
+            crowded_at,
+            self._path,
+        )
 
     def close(self) -> None:
         # ファイルベースなので明示的な close は不要。互換のためメソッドだけ残す。
